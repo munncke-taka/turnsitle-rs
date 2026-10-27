@@ -1,0 +1,7 @@
+{
+  "json.schemaDownload.enable": true,
+  "evenBetterToml.schema.enabled": true,
+  "evenBetterToml.schema.associations": {
+    "path": "https://www.schemastore.org/cargo.json"
+  }
+}

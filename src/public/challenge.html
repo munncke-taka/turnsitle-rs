@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Checando seu navegador...</title>
+    <script
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+      async
+      defer
+    ></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .box {
+        text-align: center;
+        padding: 2rem;
+      }
+      .err {
+        color: #c0392b;
+      }
+      .err:empty {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <p>Beep Boop? 🤖</p>
+      <p class="err">{{error}}</p>
+      <form method="POST" action="/_ts/challenge">
+        <input type="hidden" name="next" value="{{next}}" />
+        <div
+          class="cf-turnstile"
+          data-sitekey="{{sitekey}}"
+          data-callback="tsDone"
+        ></div>
+        <noscript><p>JavaScript é necessário para continuar.</p></noscript>
+      </form>
+    </div>
+    <script>
+      function tsDone() {
+        document.forms[0].submit();
+      }
+    </script>
+  </body>
+</html>
