@@ -1,9 +1,18 @@
+mod config;
+mod extract;
+mod handler;
+mod utils;
+
+use reqwest::Client;
+use std::sync::Arc;
+
 use crate::config::{Config, FromEnv};
 
-mod config;
-mod network;
-mod server;
-mod state;
+#[derive(Clone)]
+pub struct AppState {
+    http: Client,
+    cfg: Arc<Config>,
+}
 
 #[tokio::main]
 async fn main() {

@@ -34,6 +34,7 @@ pub struct Config {
     pub cookie: Cookie,
     pub custom_template_path: Option<String>,
     pub template: Template,
+    pub ip_header: String,
 }
 
 fn env_req(k: &str) -> String {
@@ -62,7 +63,6 @@ fn env_opt(k: &str) -> Option<String> {
 //         };
 //         (len <= max).then_some(Cidr { net, len })
 //     }
-
 //     fn contains(&self, ip: IpAddr) -> bool {
 //         // to_canonical() turns IPv4-mapped IPv6 (::ffff:1.2.3.4) into plain IPv4
 //         match (self.net, ip.to_canonical()) {
@@ -77,7 +77,6 @@ fn env_opt(k: &str) -> Option<String> {
 //             _ => false,
 //         }
 //     }
-
 //     /// ALLOW_CIDRS="10.0.0.0/8, 192.168.1.0/24 2001:db8::/32" (comma and/or space separated).
 //     /// Invalid entries abort startup so a typo never silently disables the allowlist.
 //     fn parse_allowlist(raw: &str) -> Vec<Cidr> {
@@ -86,7 +85,6 @@ fn env_opt(k: &str) -> Option<String> {
 //             .map(|s| Cidr::parse(s).unwrap_or_else(|| panic!("invalid CIDR in ALLOW_CIDRS: {s:?}")))
 //             .collect()
 //     }
-
 //     fn from_env() -> Option<Vec<Cidr>> {
 //         if let Some(raw) = env_opt("IP_WHITELIST") {
 //             raw.split(|c: char| c == ',' || c.is_whitespace());
@@ -141,6 +139,7 @@ impl FromEnv for Config {
             cookie: Cookie::from_env(),
             custom_template_path: env_opt("CUSTOM_TEMPLATE_PATH"),
             template: Template::from_env(),
+            ip_header: env_or("IP_HEADER", "X-Forwarded-From"),
         }
     }
 }
