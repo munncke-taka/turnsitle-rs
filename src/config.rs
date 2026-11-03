@@ -1,4 +1,9 @@
+mod cookie;
+pub(crate) mod template;
+
 use std::env;
+
+use crate::config::cookie::Cookie;
 
 // #[derive(Clone, Copy, Debug)]
 // pub struct Cidr {
@@ -10,30 +15,14 @@ pub trait FromEnv {
     fn from_env() -> Self;
 }
 
-pub struct Template {
-    title: String,
-    url: String,
-    version: String,
-}
-
 pub struct Turnstile {
     secret: String,
     sitekey: String,
 }
 
-pub struct Cookie {
-    hmac_key: Vec<u8>,
-    name: String,
-    domain: Option<String>,
-    ttl: u64,
-    bind_ip: bool, //If the client ip should be used to generate the HMAC
-}
-
 pub struct Config {
     pub turnstile: Turnstile,
     pub cookie: Cookie,
-    pub custom_template_path: Option<String>,
-    pub template: Template,
     pub ip_header: String,
 }
 
@@ -94,16 +83,6 @@ fn env_opt(k: &str) -> Option<String> {
 //     }
 // }
 
-impl FromEnv for Template {
-    fn from_env() -> Self {
-        Template {
-            title: env_req("TEMPLATE__TITLE"),
-            url: env_req("TEMPLATE__URL"),
-            version: env_req("TEMPLATE__VERSION"),
-        }
-    }
-}
-
 impl FromEnv for Turnstile {
     fn from_env() -> Self {
         Turnstile {
@@ -113,33 +92,16 @@ impl FromEnv for Turnstile {
     }
 }
 
-impl FromEnv for Cookie {
-    fn from_env() -> Self {
-        let hmac_key = env_req("COOKIE__HMAC_KEY");
-        let bytes = (hmac_key.len() > 43).then(|| hmac_key.into_bytes()).expect(
-            "COOKIE__HMAC_KEY smaller than 44 chars; generate with `openssl rand -base64 32`",
-        );
-
-        Cookie {
-            hmac_key: bytes,
-            name: env_or("COOKIE__NAME", "TS_STATUS"),
-            domain: env_opt("COOKIE__DOMAIN"),
-            ttl: env_or("COOKIE__TTL", "3600")
-                .parse()
-                .expect("COOKIE__TTL must be a number"),
-            bind_ip: env_or("COOKIE__BIND_IP", "1") != "0",
-        }
-    }
-}
-
 impl FromEnv for Config {
     fn from_env() -> Self {
         Config {
             turnstile: Turnstile::from_env(),
             cookie: Cookie::from_env(),
-            custom_template_path: env_opt("CUSTOM_TEMPLATE_PATH"),
-            template: Template::from_env(),
             ip_header: env_or("IP_HEADER", "X-Forwarded-From"),
         }
     }
+}
+
+pub fn listen_address() -> String {
+    env_or("LISTEN_ADDRESS", "127.0.0.1:9000")
 }
