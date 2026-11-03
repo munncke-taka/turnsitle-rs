@@ -1,8 +1,7 @@
 use std::fs;
 
 use crate::config::env_opt;
-
-use super::{FromEnv, env_req};
+use crate::config::{FromEnv, env_req};
 
 const BASE_TEMPLATE: &str = include_str!("../public/challenge.html");
 
@@ -11,6 +10,7 @@ struct Template {
     title: String,
     url: String,
     version: String,
+    sitekey: String,
 }
 
 impl FromEnv for Template {
@@ -20,6 +20,7 @@ impl FromEnv for Template {
             title: env_req("TEMPLATE__TITLE"),
             url: env_req("TEMPLATE__URL"),
             version: env_req("TEMPLATE__VERSION"),
+            sitekey: env_req("TURNSTILE__SITEKEY"),
         }
     }
 }
@@ -33,7 +34,8 @@ pub fn build_template() -> &'static str {
         None => BASE_TEMPLATE.to_string(),
     };
 
-    html.replace("{{TITLE}}", &vars.title)
+    html.replace("{{SITEKEY}}", &vars.sitekey)
+        .replace("{{TITLE}}", &vars.title)
         .replace("{{URL}}", &vars.url)
         .replace("{{VERSION}}", &vars.version)
         .leak()

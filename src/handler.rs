@@ -1,33 +1,117 @@
-use std::env;
-use std::sync::LazyLock;
+use std::net::IpAddr;
 
 use axum::extract::State;
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::{Form, Router};
 use axum_extra::extract::CookieJar;
-use reqwest::StatusCode;
+use axum_extra::extract::cookie::{Cookie, SameSite};
+use reqwest::{Client, StatusCode};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::AppState;
-use crate::extract::ClientIp;
+use crate::app_error::AppError;
+use crate::extract::ClientCtx;
+use crate::utils::{is_safe_path, now};
+
+const SITEVERIFY_URL: &str = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+
+#[derive(Debug, Deserialize)]
+struct SiteverifyResponse {
+    success: bool,
+    #[serde(rename = "error-codes", default)]
+    error_codes: Vec<String>,
+    challenge_ts: Option<String>,
+    hostname: Option<String>,
+    action: Option<String>,
+    cdata: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SiteverifyRequest<'a> {
+    secret: &'a str,
+    response: &'a str,
+    idempotency_key: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remoteip: Option<IpAddr>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChallengeForm {
+    #[serde(rename = "cf-turnstile-response")]
+    token: String,
+    next: Option<String>,
+}
+
+impl SiteverifyResponse {
+    fn internal_error() -> Self {
+        Self {
+            success: false,
+            error_codes: vec!["internal-error".into()],
+            challenge_ts: None,
+            hostname: None,
+            action: None,
+            cdata: None,
+        }
+    }
+}
 
 async fn get_challenge() -> Response {
     StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
-async fn post_challenge(State(s): State<AppState>, ClientIp(ip): ClientIp) -> Response {
-    StatusCode::NOT_IMPLEMENTED.into_response()
+async fn post_challenge(
+    State(s): State<AppState>,
+    ClientCtx(ip, _): ClientCtx,
+    jar: CookieJar,
+    Form(f): Form<ChallengeForm>,
+) -> Result<Response, AppError> {
+    let idempotency_key = Uuid::new_v4();
+    let request = SiteverifyRequest {
+        secret: &s.cfg.turnstile.secret,
+        response: &f.token,
+        idempotency_key,
+        remoteip: ip,
+    };
+
+    let result = validate_with_retry(&s.http, request, s.cfg.turnstile.max_retries).await;
+
+    if result.success {
+        let next = f
+            .next
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| is_safe_path(u))
+            .unwrap_or("/");
+
+        let value = s
+            .cfg
+            .check_cookie
+            .sign(now() + s.cfg.check_cookie.ttl, ip)?;
+        let cookie = Cookie::build((s.cfg.check_cookie.name, value))
+            .path("/")
+            .http_only(true)
+            .secure(s.cfg.check_cookie.secure)
+            .same_site(SameSite::Lax)
+            .max_age(s.cfg.check_cookie.ttl);
+
+        Ok((jar.add(cookie), Redirect::to(next)).into_response())
+    } else {
+        todo!()
+    }
 }
 
-async fn get_verify(State(s): State<AppState>, ClientIp(ip): ClientIp, jar: CookieJar) -> Response {
-    match jar.get(&s.cfg.cookie.name) {
-        Some(c) => {
-            if s.cfg.cookie.verify_hmac(c.value(), &ip.to_string()) {
-                StatusCode::NO_CONTENT.into_response()
-            } else {
-                StatusCode::UNAUTHORIZED.into_response()
-            }
-        }
+async fn get_verify(
+    State(s): State<AppState>,
+    ClientCtx(ip, _): ClientCtx,
+    jar: CookieJar,
+) -> Response {
+    match jar.get(&s.cfg.check_cookie.name) {
+        Some(c) => match s.cfg.check_cookie.verify_hmac(c.value(), ip) {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(_) => StatusCode::UNAUTHORIZED.into_response(),
+        },
         _ => StatusCode::UNAUTHORIZED.into_response(),
     }
 }
@@ -37,6 +121,39 @@ pub fn new(state: AppState) -> Router {
         .route("/_ts/challenge", get(get_challenge).post(post_challenge))
         .route("/_ts/verify", get(get_verify))
         .with_state(state)
+}
+
+async fn validate_with_retry(
+    client: &Client,
+    form: SiteverifyRequest<'_>,
+    max_retries: u32,
+) -> SiteverifyResponse {
+    for attempt in 0..=max_retries {
+        let result = async {
+            let resp = client.post(SITEVERIFY_URL).form(&form).send().await?;
+            let ok = resp.status().is_success();
+            let body: SiteverifyResponse = resp.json().await?;
+            Ok::<_, reqwest::Error>((ok, body))
+        }
+        .await;
+
+        match result {
+            // Success, or the last attempt: return whatever Cloudflare said
+            Ok((true, body)) => return body,
+            Ok((false, body)) if attempt == max_retries => return body,
+            // Network/parse failure on the last attempt
+            Err(e) if attempt == max_retries => {
+                eprintln!("Turnstile siteverify failed: {e}");
+                return SiteverifyResponse::internal_error();
+            }
+            Ok((false, _)) => {}
+            Err(e) => eprintln!("Turnstile attempt {attempt} failed: {e}"),
+        }
+
+        // Exponential backoff: 2s, 4s, 8s…
+        tokio::time::sleep(Duration::from_secs(2u64.pow(attempt))).await;
+    }
+    SiteverifyResponse::internal_error()
 }
 
 // use axum::{

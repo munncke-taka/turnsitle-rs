@@ -1,8 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use time::OffsetDateTime;
 
-pub fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+pub fn now() -> i64 {
+    OffsetDateTime::now_utc().unix_timestamp()
+}
+
+pub fn is_safe_path(uri: &str) -> bool {
+    uri.starts_with('/') && !uri.starts_with("//") && !uri.starts_with("/\\")
 }

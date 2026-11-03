@@ -1,9 +1,9 @@
-mod cookie;
+pub(crate) mod cookie;
 pub(crate) mod template;
 
 use std::env;
 
-use crate::config::cookie::Cookie;
+use crate::config::cookie::CheckCookie;
 
 // #[derive(Clone, Copy, Debug)]
 // pub struct Cidr {
@@ -16,14 +16,15 @@ pub trait FromEnv {
 }
 
 pub struct Turnstile {
-    secret: String,
-    sitekey: String,
+    pub(crate) secret: String,
+    pub(crate) max_retries: u32,
 }
 
 pub struct Config {
     pub turnstile: Turnstile,
-    pub cookie: Cookie,
+    pub check_cookie: CheckCookie,
     pub ip_header: String,
+    pub original_uri_header: String,
 }
 
 fn env_req(k: &str) -> String {
@@ -85,9 +86,16 @@ fn env_opt(k: &str) -> Option<String> {
 
 impl FromEnv for Turnstile {
     fn from_env() -> Self {
+        let retries: u32 = env_or("TURNSTILE__MAX_RETRIES", "3")
+            .parse()
+            .expect("MAX_RETRIES must be a number between [0,5]");
+
+        if retries > 5 {
+            panic!("MAX_RETRIES must be a number between [0,5]")
+        }
         Turnstile {
             secret: env_req("TURNSTILE__SECRET"),
-            sitekey: env_req("TURNSTILE__SITEKEY"),
+            max_retries: retries,
         }
     }
 }
@@ -96,8 +104,9 @@ impl FromEnv for Config {
     fn from_env() -> Self {
         Config {
             turnstile: Turnstile::from_env(),
-            cookie: Cookie::from_env(),
+            check_cookie: CheckCookie::from_env(),
             ip_header: env_or("IP_HEADER", "X-Forwarded-From"),
+            original_uri_header: env_or("ORIGINAL_URI_HEADER", "X-Original-uri"),
         }
     }
 }

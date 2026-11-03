@@ -31,25 +31,90 @@
       .err:empty {
         display: none;
       }
+      .ok {
+        color: #1a7f37;
+      }
     </style>
   </head>
   <body>
     <div class="box">
       <p>Beep Boop? 🤖</p>
-      <p class="err">{{error}}</p>
+      <p id="msg" class="err" role="status" aria-live="polite">{{error}}</p>
       <form method="POST" action="/_ts/challenge">
-        <input type="hidden" name="next" value="{{next}}" />
         <div
           class="cf-turnstile"
-          data-sitekey="{{sitekey}}"
-          data-callback="tsDone"
+          data-size="flexible"
+          data-sitekey="{{SITEKEY}}"
+          data-callback="onSuccess"
+          data-error-callback="onError"
+          data-expired-callback="onExpired"
+          data-timeout-callback="onTimeout"
         ></div>
+        <button type="button" id="retry" hidden onclick="retryChallenge()">
+          Tentar novamente
+        </button>
         <noscript><p>JavaScript é necessário para continuar.</p></noscript>
       </form>
     </div>
+
     <script>
-      function tsDone() {
+      const msg = document.getElementById("msg");
+      const retryBtn = document.getElementById("retry");
+      let submitted = false;
+
+      function show(text, type = "err") {
+        msg.textContent = text;
+        msg.className = type;
+      }
+
+      function onSuccess() {
+        if (submitted) return; // guard against double submits
+        submitted = true;
+        retryBtn.hidden = true;
+        show("Verificado! Continuando…", "ok");
         document.forms[0].submit();
+      }
+
+      function onError(errorCode) {
+        console.warn("Challenge Error:", errorCode);
+        const code = String(errorCode);
+
+        if (code.startsWith("110")) {
+          show(
+            "Ocorreu um problema do nosso lado. Por favor, tente novamente mais tarde.",
+          );
+          retryBtn.hidden = true;
+        } else if (code.startsWith("200")) {
+          show(
+            "Não foi possível carregar a verificação. Verifique sua conexão ou desative bloqueadores de anúncios e tente novamente.",
+          );
+          retryBtn.hidden = false;
+        } else {
+          show(
+            "Não conseguimos confirmar que você é humano. Tente novamente; se persistir, experimente outro navegador.",
+          );
+          retryBtn.hidden = false;
+        }
+        return true; // tells Turnstile we handled it
+      }
+
+      function onExpired() {
+        console.log("Token expired");
+        show("A verificação expirou. Renovando…");
+        // Turnstile refreshes automatically by default (refresh-expired="auto")
+      }
+
+      function onTimeout() {
+        console.log("Challenge timed out");
+        show("A verificação demorou demais. Clique em “Tentar novamente”.");
+        retryBtn.hidden = false;
+      }
+
+      function retryChallenge() {
+        submitted = false;
+        retryBtn.hidden = true;
+        show("");
+        turnstile.reset();
       }
     </script>
   </body>
