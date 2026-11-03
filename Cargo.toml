@@ -7,6 +7,7 @@ edition = "2024"
 
 
 [dependencies]
+axum-extra = { version = "0.12.6", features = ["cookie", "cookie-signed"] }
 axum = "0.8.9"
 tokio = { version = "1.54.1", features = [
     "rt-multi-thread",
@@ -22,7 +23,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 hmac = "0.13.0"
 sha2 = "0.11.1"
 base64 = "0.23.1"
-
 [profile.release]
 lto = true
 strip = true

@@ -1,39 +1,35 @@
 use std::env;
 use std::sync::LazyLock;
 
-use axum::Router;
 use axum::extract::State;
-use axum::http::HeaderMap;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::{Form, Router};
+use axum_extra::extract::CookieJar;
 use reqwest::StatusCode;
 
 use crate::AppState;
-
-const TEMPLATE: &str = include_str!("./public/challenge.html");
-static INDEX: LazyLock<String> = LazyLock::new(|| {
-    let var = |k: &str| env::var(k).unwrap_or_else(|_| panic!("{k} not set"));
-    TEMPLATE
-        .replace("{{CHALLENGE__TITLE}}", &var("APP_TITLE"))
-        .replace("{{CHALLENGE__API_URL}}", &var("API_URL"))
-        .replace("{{CHALLENGE__VERSION}}", &var("APP_VERSION"))
-});
+use crate::extract::ClientIp;
 
 async fn get_challenge() -> Response {
     StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
-async fn post_challenge() -> Response {
+async fn post_challenge(State(s): State<AppState>, ClientIp(ip): ClientIp) -> Response {
     StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
-async fn get_verify() -> Response {
-    StatusCode::NOT_IMPLEMENTED.into_response()
-    // let ip = client_ip(&h);
-    // match get_cookie(&h, &s.cfg.cookie_name) {
-    //     Some(v) if verify_cookie(&s.cfg, v, &ip) => StatusCode::NO_CONTENT,
-    //     _ => StatusCode::UNAUTHORIZED,
-    // }
+async fn get_verify(State(s): State<AppState>, ClientIp(ip): ClientIp, jar: CookieJar) -> Response {
+    match jar.get(&s.cfg.cookie.name) {
+        Some(c) => {
+            if s.cfg.cookie.verify_hmac(c.value(), &ip.to_string()) {
+                StatusCode::NO_CONTENT.into_response()
+            } else {
+                StatusCode::UNAUTHORIZED.into_response()
+            }
+        }
+        _ => StatusCode::UNAUTHORIZED.into_response(),
+    }
 }
 
 pub fn new(state: AppState) -> Router {
@@ -101,14 +97,3 @@ pub fn new(state: AppState) -> Router {
 // }
 
 // /// Finds `name` in the request's Cookie header(s).
-fn read_cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .find_map(|pair| {
-            let (k, v) = pair.trim().split_once('=')?;
-            (k == name).then_some(v)
-        })
-}
