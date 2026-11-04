@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use crate::AppState;
 use crate::utils::is_safe_path;
 
-pub struct ClientCtx(pub Option<IpAddr>, pub Option<String>);
+pub struct ClientCtx(pub Option<IpAddr>, pub String);
 
 pub enum ClientCtxError {
     MissingIP,
@@ -51,7 +51,8 @@ impl FromRequestParts<AppState> for ClientCtx {
             .and_then(|v| v.to_str().ok())
             .map(str::trim)
             .filter(|u| is_safe_path(u))
-            .map(str::to_owned);
+            .map(str::to_owned)
+            .unwrap_or_else(|| "/".to_string());
 
         Ok(Self(ip, original_uri))
     }

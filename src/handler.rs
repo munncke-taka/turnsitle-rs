@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
 use axum::extract::State;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::{Form, Router};
 use axum_extra::extract::CookieJar;
@@ -22,9 +22,13 @@ struct SiteverifyResponse {
     success: bool,
     #[serde(rename = "error-codes", default)]
     error_codes: Vec<String>,
+    #[allow(dead_code)]
     challenge_ts: Option<String>,
+    #[allow(dead_code)]
     hostname: Option<String>,
+    #[allow(dead_code)]
     action: Option<String>,
+    #[allow(dead_code)]
     cdata: Option<String>,
 }
 
@@ -57,8 +61,10 @@ impl SiteverifyResponse {
     }
 }
 
-async fn get_challenge() -> Response {
-    StatusCode::NOT_IMPLEMENTED.into_response()
+async fn get_challenge(State(s): State<AppState>, ClientCtx(_, next): ClientCtx) -> Response {
+    let modified = s.html.replace("{{NEXT_VALUE}}", &next);
+
+    Html(modified).into_response()
 }
 
 async fn post_challenge(
@@ -88,8 +94,8 @@ async fn post_challenge(
         let value = s
             .cfg
             .check_cookie
-            .sign(now() + s.cfg.check_cookie.ttl, ip)?;
-        let cookie = Cookie::build((s.cfg.check_cookie.name, value))
+            .sign(now() + s.cfg.check_cookie.ttl.whole_seconds(), ip)?;
+        let cookie = Cookie::build((s.cfg.check_cookie.name.clone(), value))
             .path("/")
             .http_only(true)
             .secure(s.cfg.check_cookie.secure)
@@ -98,7 +104,8 @@ async fn post_challenge(
 
         Ok((jar.add(cookie), Redirect::to(next)).into_response())
     } else {
-        todo!()
+        eprintln!("{:?}", result.error_codes);
+        Ok(StatusCode::BAD_REQUEST.into_response())
     }
 }
 
@@ -116,19 +123,12 @@ async fn get_verify(
     }
 }
 
-pub fn new(state: AppState) -> Router {
-    Router::new()
-        .route("/_ts/challenge", get(get_challenge).post(post_challenge))
-        .route("/_ts/verify", get(get_verify))
-        .with_state(state)
-}
-
 async fn validate_with_retry(
     client: &Client,
     form: SiteverifyRequest<'_>,
     max_retries: u32,
 ) -> SiteverifyResponse {
-    for attempt in 0..=max_retries {
+    for attempt in 1..=max_retries {
         let result = async {
             let resp = client.post(SITEVERIFY_URL).form(&form).send().await?;
             let ok = resp.status().is_success();
@@ -136,7 +136,6 @@ async fn validate_with_retry(
             Ok::<_, reqwest::Error>((ok, body))
         }
         .await;
-
         match result {
             // Success, or the last attempt: return whatever Cloudflare said
             Ok((true, body)) => return body,
@@ -151,9 +150,16 @@ async fn validate_with_retry(
         }
 
         // Exponential backoff: 2s, 4s, 8s…
-        tokio::time::sleep(Duration::from_secs(2u64.pow(attempt))).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(2u64.pow(attempt))).await;
     }
     SiteverifyResponse::internal_error()
+}
+
+pub fn new(state: AppState) -> Router {
+    Router::new()
+        .route("/_ts/challenge", get(get_challenge).post(post_challenge))
+        .route("/_ts/verify", get(get_verify))
+        .with_state(state)
 }
 
 // use axum::{

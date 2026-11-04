@@ -1,7 +1,7 @@
 use std::fs;
 
-use crate::config::env_opt;
 use crate::config::{FromEnv, env_req};
+use crate::config::{env_opt, env_or};
 
 const BASE_TEMPLATE: &str = include_str!("../public/challenge.html");
 
@@ -17,9 +17,9 @@ impl FromEnv for Template {
     fn from_env() -> Self {
         Template {
             custom_path: env_opt("TEMPLATE__CUSTOM_PATH"),
-            title: env_req("TEMPLATE__TITLE"),
-            url: env_req("TEMPLATE__URL"),
-            version: env_req("TEMPLATE__VERSION"),
+            title: env_or("TEMPLATE__TITLE", ""),
+            url: env_or("TEMPLATE__URL", ""),
+            version: env_or("TEMPLATE__VERSION", ""),
             sitekey: env_req("TURNSTILE__SITEKEY"),
         }
     }

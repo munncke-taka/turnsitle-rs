@@ -88,10 +88,10 @@ impl FromEnv for Turnstile {
     fn from_env() -> Self {
         let retries: u32 = env_or("TURNSTILE__MAX_RETRIES", "3")
             .parse()
-            .expect("MAX_RETRIES must be a number between [0,5]");
+            .expect("TURNSTILE__MAX_RETRIES must be a number between [0,5]");
 
         if retries > 5 {
-            panic!("MAX_RETRIES must be a number between [0,5]")
+            panic!("TURNSTILE__MAX_RETRIES must be a number between [0,5]")
         }
         Turnstile {
             secret: env_req("TURNSTILE__SECRET"),

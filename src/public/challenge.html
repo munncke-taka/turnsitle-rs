@@ -24,6 +24,7 @@
       .box {
         text-align: center;
         padding: 2rem;
+        max-width: 300px;
       }
       .err {
         color: #c0392b;
@@ -34,13 +35,81 @@
       .ok {
         color: #1a7f37;
       }
+      #retry {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding: 0.65rem 1.3rem;
+        font: inherit;
+        font-weight: 600;
+        color: #fff;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        border: 0;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgb(99 102 241 / 0.35);
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease,
+          filter 0.15s ease;
+        animation: retry-pop 0.25s ease-out;
+      }
+
+      /* display above would override the hidden attribute, so restore it */
+      #retry[hidden] {
+        display: none;
+      }
+
+      #retry:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgb(99 102 241 / 0.45);
+        filter: brightness(1.07);
+      }
+
+      #retry:active {
+        transform: translateY(0) scale(0.97);
+      }
+
+      #retry:focus-visible {
+        outline: 2px solid #8b5cf6;
+        outline-offset: 3px;
+      }
+
+      #retry .icon {
+        display: inline-block;
+        transition: transform 0.4s ease;
+      }
+
+      #retry:hover .icon {
+        transform: rotate(-180deg);
+      }
+
+      @keyframes retry-pop {
+        from {
+          opacity: 0;
+          transform: scale(0.9);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #retry,
+        #retry .icon {
+          animation: none;
+          transition: none;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="box">
       <p>Beep Boop? 🤖</p>
-      <p id="msg" class="err" role="status" aria-live="polite">{{error}}</p>
       <form method="POST" action="/_ts/challenge">
+        <input type="hidden" name="next" value="{{NEXT_VALUE}}" />
         <div
           class="cf-turnstile"
           data-size="flexible"
@@ -50,7 +119,9 @@
           data-expired-callback="onExpired"
           data-timeout-callback="onTimeout"
         ></div>
+        <p id="msg" class="err" role="status" aria-live="polite"></p>
         <button type="button" id="retry" hidden onclick="retryChallenge()">
+          <span class="icon" aria-hidden="true">↻</span>
           Tentar novamente
         </button>
         <noscript><p>JavaScript é necessário para continuar.</p></noscript>
@@ -58,21 +129,104 @@
     </div>
 
     <script>
+      const form = document.forms[0];
       const msg = document.getElementById("msg");
       const retryBtn = document.getElementById("retry");
-      let submitted = false;
+      let busy = false; // true while a token is being posted
 
       function show(text, type = "err") {
         msg.textContent = text;
         msg.className = type;
       }
 
-      function onSuccess() {
-        if (submitted) return; // guard against double submits
-        submitted = true;
-        retryBtn.hidden = true;
+      // Same rule the server applies to `next`: a local path only.
+      function safeNext(raw) {
+        const u = (raw || "").trim();
+        return u.startsWith("/") && !u.startsWith("//") && !u.startsWith("/\\")
+          ? u
+          : "/";
+      }
+
+      function resetWidget() {
+        // Turnstile tokens are single-use: after any attempt, get a fresh one.
+        if (window.turnstile) turnstile.reset();
+      }
+
+      // Shows an error. Does not touch the widget: resetting from a widget error
+      // callback could loop, so only a failed POST (see submitToken) resets it.
+      function fail(text, { retry = true } = {}) {
+        busy = false;
+        show(text);
+        retryBtn.hidden = !retry;
+      }
+
+      function succeed(next) {
+        // The server sets the signed cookie on this response and redirects to `next`.
+        // redirect: "manual" yields an opaque redirect we can't read, so we navigate ourselves.
         show("Verificado! Continuando…", "ok");
-        document.forms[0].submit();
+        retryBtn.hidden = true;
+        window.location.assign(next);
+      }
+
+      async function submitToken(token) {
+        // Must be urlencoded: the server's Form extractor rejects multipart with 415.
+        const body = new URLSearchParams();
+        body.set("cf-turnstile-response", token);
+        body.set("next", form.elements.next.value);
+
+        let res;
+        try {
+          res = await fetch(form.action, {
+            method: "POST",
+            body,
+            credentials: "same-origin",
+            cache: "no-store",
+            redirect: "manual",
+            headers: { Accept: "text/html" },
+          });
+        } catch (err) {
+          console.warn("Challenge request failed:", err);
+          resetWidget(); // the token was spent or never reached the server
+          return fail(
+            "Não foi possível falar com o servidor. Verifique sua conexão e tente novamente.",
+          );
+        }
+
+        const next = safeNext(form.elements.next.value);
+
+        // 302 to `next`: the server accepted the token and issued the cookie.
+        // Browsers hide the status of a manual redirect as type "opaqueredirect" (status 0).
+        if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+          return succeed(next);
+        }
+
+        // Every other answer means the token was consumed: get a fresh one before retrying.
+        resetWidget();
+
+        if (res.status === 400) {
+          // Token rejected by the server (invalid, reused, expired or bad hostname).
+          return fail(
+            "Não conseguimos confirmar que você é humano. Tente novamente; se persistir, experimente outro navegador.",
+          );
+        }
+
+        if (res.status >= 500) {
+          console.warn("Challenge server error:", res.status);
+          return fail(
+            "Ocorreu um problema do nosso lado. Por favor, tente novamente mais tarde.",
+          );
+        }
+
+        console.warn("Unexpected challenge response:", res.status);
+        return fail("Resposta inesperada do servidor. Tente novamente.");
+      }
+
+      function onSuccess(token) {
+        if (busy) return; // guard against double submits
+        busy = true;
+        retryBtn.hidden = true;
+        show("Verificando…", "ok");
+        submitToken(token);
       }
 
       function onError(errorCode) {
@@ -80,20 +234,18 @@
         const code = String(errorCode);
 
         if (code.startsWith("110")) {
-          show(
+          fail(
             "Ocorreu um problema do nosso lado. Por favor, tente novamente mais tarde.",
+            { retry: false },
           );
-          retryBtn.hidden = true;
         } else if (code.startsWith("200")) {
-          show(
+          fail(
             "Não foi possível carregar a verificação. Verifique sua conexão ou desative bloqueadores de anúncios e tente novamente.",
           );
-          retryBtn.hidden = false;
         } else {
-          show(
+          fail(
             "Não conseguimos confirmar que você é humano. Tente novamente; se persistir, experimente outro navegador.",
           );
-          retryBtn.hidden = false;
         }
         return true; // tells Turnstile we handled it
       }
@@ -111,11 +263,14 @@
       }
 
       function retryChallenge() {
-        submitted = false;
+        busy = false;
         retryBtn.hidden = true;
         show("");
-        turnstile.reset();
+        resetWidget();
       }
+
+      // The form has no submit button of its own; never let Enter trigger a native POST.
+      form.addEventListener("submit", (e) => e.preventDefault());
     </script>
   </body>
 </html>

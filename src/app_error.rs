@@ -13,6 +13,12 @@ impl From<HmacCookieError> for AppError {
     }
 }
 
+impl From<ClientCtxError> for AppError {
+    fn from(e: ClientCtxError) -> Self {
+        AppError::ClientCtxError(e)
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         match self {

@@ -21,6 +21,7 @@ pub(crate) enum HmacCookieError {
 
 pub(crate) struct CheckCookie {
     hmac_key: Vec<u8>,
+    #[allow(dead_code)]
     domain: Option<String>,
     pub name: String,
     pub secure: bool,
@@ -58,7 +59,7 @@ impl FromEnv for CheckCookie {
 
         CheckCookie {
             hmac_key: bytes,
-            name: super::env_or("CHECK_COOKIE__NAME", "TS_STATUS"),
+            name: env_or("CHECK_COOKIE__NAME", "TS_STATUS"),
             domain: env_opt("CHECK_COOKIE__DOMAIN"),
             ttl: ttl,
             bind_ip: env_or("CHECK_COOKIE__BIND_IP", "true")
