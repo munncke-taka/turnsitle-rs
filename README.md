@@ -42,11 +42,11 @@ The server validates each token against Cloudflare's `siteverify` endpoint, retr
 
 ## Endpoints
 
-| Method | Path               | Purpose                                                                 | Responses                                                                 |
-| ------ | ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| GET    | `/_ts/verify`      | Checks the `CHECK_COOKIE__NAME` cookie (HMAC, expiry, IP if bound).     | `204` valid · `401` missing, malformed, expired or invalid                |
-| GET    | `/_ts/challenge`   | Serves the challenge page. `X-Original-URI` becomes `next`.             | `200` HTML                                                                |
-| POST   | `/_ts/challenge`   | Form body: `cf-turnstile-response` (token) and `next`. Verifies, sets the cookie. | `302` to `next` on success · `400` rejected or failed · `400` on missing IP header · `500` signing error |
+| Method | Path             | Purpose                                                                           | Responses                                                                                                |
+| ------ | ---------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| GET    | `/_ts/verify`    | Checks the `CHECK_COOKIE__NAME` cookie (HMAC, expiry, IP if bound).               | `204` valid · `401` missing, malformed, expired or invalid                                               |
+| GET    | `/_ts/challenge` | Serves the challenge page. `X-Original-URI` becomes `next`.                       | `200` HTML                                                                                               |
+| POST   | `/_ts/challenge` | Form body: `cf-turnstile-response` (token) and `next`. Verifies, sets the cookie. | `302` to `next` on success · `400` rejected or failed · `400` on missing IP header · `500` signing error |
 
 `next` is only honored when it is a local path: it must start with `/`, and not with `//` or `/\`. Anything else falls back to `/`.
 
@@ -56,30 +56,31 @@ Settings come from environment variables. A `.env` file in the working directory
 
 ### Required
 
-| Variable                  | Description                                                                                                 |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `TURNSTILE__SITEKEY`      | Turnstile site key. Injected into the page at startup.                                                     |
-| `TURNSTILE__SECRET`       | Turnstile secret key, used for server-side verification.                                                    |
-| `CHECK_COOKIE__HMAC_KEY`  | Key for signing the cookie. Must be **longer than 43 characters**. Generate one with `openssl rand -base64 32`. |
+| Variable                 | Description                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `TURNSTILE__SITEKEY`     | Turnstile site key. Injected into the page at startup.                                                          |
+| `TURNSTILE__SECRET`      | Turnstile secret key, used for server-side verification.                                                        |
+| `CHECK_COOKIE__HMAC_KEY` | Key for signing the cookie. Must be **longer than 43 characters**. Generate one with `openssl rand -base64 32`. |
 
 ts-gate refuses to start if a required variable is missing.
 
 ### Optional
 
-| Variable                    | Default          | Description                                                                                                                              |
-| --------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `TURNSTILE__MAX_RETRIES`    | `3`              | Verification attempts against Cloudflare, 1–5. Values above 5 abort startup.                                                             |
-| `CHECK_COOKIE__NAME`        | `TS_STATUS`      | Name of the cookie.                                                                                                                      |
-| `CHECK_COOKIE__TTL`         | `3600`           | Cookie lifetime, in seconds.                                                                                                             |
-| `CHECK_COOKIE__BIND_IP`     | `true`           | Bind the cookie to the client IP. Requires the IP header below on every request.                                                         |
-| `CHECK_COOKIE__SECURE`      | `true`           | Sets the `Secure` flag. Turn off only for plain-HTTP local testing.                                                                      |
-| `IP_HEADER`                 | `X-Forwarded-From` | Header nginx uses to pass the client IP. The bundled nginx snippets send `X-Real-IP`, so set `IP_HEADER=X-Real-IP` to match them.       |
-| `ORIGINAL_URI_HEADER`       | `X-Original-uri` | Header carrying the URI the visitor asked for. Used as `next`.                                                                           |
-| `LISTEN_ADDRESS`            | `127.0.0.1:9000` | Address and port to bind.                                                                                                                |
-| `TEMPLATE__CUSTOM_PATH`     | *(built-in)*     | Path to your own challenge HTML. Read once at startup.                                                                                   |
-| `TEMPLATE__TITLE`           | *(empty)*        | Replaces `{{TITLE}}` in the template.                                                                                                    |
-| `TEMPLATE__URL`             | *(empty)*        | Replaces `{{URL}}` in the template.                                                                                                      |
-| `TEMPLATE__VERSION`         | *(empty)*        | Replaces `{{VERSION}}` in the template.                                                                                                  |
+| Variable                 | Default            | Description                                                                                                                       |
+| ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `TURNSTILE__MAX_RETRIES` | `3`                | Verification attempts against Cloudflare, 1–5. Values above 5 abort startup.                                                      |
+| `CHECK_COOKIE__NAME`     | `TS_STATUS`        | Name of the cookie.                                                                                                               |
+| `CHECK_COOKIE__TTL`      | `3600`             | Cookie lifetime, in seconds.                                                                                                      |
+| `CHECK_COOKIE__BIND_IP`  | `true`             | Bind the cookie to the client IP. Requires the IP header below on every request.                                                  |
+| `CHECK_COOKIE__SECURE`   | `true`             | Sets the `Secure` flag. Turn off only for plain-HTTP local testing.                                                               |
+| `IP_HEADER`              | `X-Forwarded-From` | Header nginx uses to pass the client IP. The bundled nginx snippets send `X-Real-IP`, so set `IP_HEADER=X-Real-IP` to match them. |
+| `ORIGINAL_URI_HEADER`    | `X-Original-uri`   | Header carrying the URI the visitor asked for. Used as `next`.                                                                    |
+| `LISTEN_ADDRESS`         | `127.0.0.1:9000`   | Address and port to bind.                                                                                                         |
+| `TEMPLATE__CUSTOM_PATH`  | _(built-in)_       | Path to your own challenge HTML. Read once at startup.                                                                            |
+
+<!-- | `TEMPLATE__TITLE`        | _(empty)_          | Replaces `{{TITLE}}` in the template.                                                                                             |
+| `TEMPLATE__URL`          | _(empty)_          | Replaces `{{URL}}` in the template.                                                                                               |
+| `TEMPLATE__VERSION`      | _(empty)_          | Replaces `{{VERSION}}` in the template.                                                                                           | --> -->
 
 Example `.env`:
 
@@ -106,6 +107,29 @@ cargo build --release
 ```
 
 On startup it prints `Listenting on <address>`. Then nginx needs to be configured, as below.
+
+## Deploying on bare metal (systemd)
+
+`deploy/` has a systemd unit and an environment file template. The settings go in `/etc/ts-gate.env`, which systemd reads as root, so the secrets never appear in the unit file or the process list.
+
+```sh
+cargo build --release
+sudo install -m 0755 target/release/ts-gate /usr/local/bin/ts-gate
+
+sudo install -m 0600 deploy/ts-gate.env.example /etc/ts-gate.env
+sudo -e /etc/ts-gate.env              # fill in the required values
+
+sudo install -m 0644 deploy/ts-gate.service /etc/systemd/system/ts-gate.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now ts-gate
+
+systemctl status ts-gate
+journalctl -u ts-gate -f              # errors, cookie checks, Cloudflare error codes
+```
+
+After editing `/etc/ts-gate.env`, run `sudo systemctl restart ts-gate`. After a new build, install the binary again and restart.
+
+The service listens on `127.0.0.1:9000` by default, which matches the nginx snippets. Nothing needs to be exposed publicly.
 
 ## Testing with Docker
 
@@ -165,13 +189,15 @@ If you run nginx behind another proxy, make sure the header ts-gate reads (`IP_H
 
 The built-in page is `src/public/challenge.html`, compiled into the binary. To use your own, set `TEMPLATE__CUSTOM_PATH`. ts-gate replaces these placeholders at startup:
 
-| Placeholder       | Replaced with                       |
-| ----------------- | ----------------------------------- |
-| `{{SITEKEY}}`     | `TURNSTILE__SITEKEY`                |
-| `{{TITLE}}`       | `TEMPLATE__TITLE`                   |
-| `{{URL}}`         | `TEMPLATE__URL`                     |
-| `{{VERSION}}`     | `TEMPLATE__VERSION`                 |
-| `{{NEXT_VALUE}}`  | The request's original URI (`X-Original-URI`), per request |
+| Placeholder      | Replaced with                                              |
+| ---------------- | ---------------------------------------------------------- |
+| `{{SITEKEY}}`    | `TURNSTILE__SITEKEY`                                       |
+| `{{NEXT_VALUE}}` | The request's original URI (`X-Original-URI`), per request |
+
+<!--
+| `{{TITLE}}`      | `TEMPLATE__TITLE`                                          |
+| `{{URL}}`        | `TEMPLATE__URL`                                            |
+| `{{VERSION}}`    | `TEMPLATE__VERSION`                                        | -->
 
 The page must:
 

@@ -1,0 +1,23 @@
+[Unit]
+Description=ts-gate Turnstile gate for nginx
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/ts-gate
+# Settings are read from this file (KEY=VALUE per line). systemd reads it as root,
+# before dropping privileges, so keep it mode 0600. See deploy/ts-gate.env.example.
+EnvironmentFile=/etc/ts-gate.env
+
+# Run as a throwaway unprivileged user.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
