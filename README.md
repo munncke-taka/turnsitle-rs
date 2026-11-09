@@ -73,7 +73,7 @@ ts-gate refuses to start if a required variable is missing.
 | `CHECK_COOKIE__TTL`      | `3600`             | Cookie lifetime, in seconds.                                                                                                      |
 | `CHECK_COOKIE__BIND_IP`  | `true`             | Bind the cookie to the client IP. Requires the IP header below on every request.                                                  |
 | `CHECK_COOKIE__SECURE`   | `true`             | Sets the `Secure` flag. Turn off only for plain-HTTP local testing.                                                               |
-| `IP_HEADER`              | `X-Forwarded-From` | Header nginx uses to pass the client IP. The bundled nginx snippets send `X-Real-IP`, so set `IP_HEADER=X-Real-IP` to match them. |
+| `IP_HEADER`              | `X-Forwarded-From` | Header nginx uses to pass the client IP. The bundled nginx config (`docker/nginx.conf`) sends `X-Real-IP`, so set `IP_HEADER=X-Real-IP` to match it. |
 | `ORIGINAL_URI_HEADER`    | `X-Original-uri`   | Header carrying the URI the visitor asked for. Used as `next`.                                                                    |
 | `LISTEN_ADDRESS`         | `127.0.0.1:9000`   | Address and port to bind.                                                                                                         |
 | `TEMPLATE__CUSTOM_PATH`  | _(built-in)_       | Path to your own challenge HTML. Read once at startup.                                                                            |
@@ -129,7 +129,7 @@ journalctl -u ts-gate -f              # errors, cookie checks, Cloudflare error 
 
 After editing `/etc/ts-gate.env`, run `sudo systemctl restart ts-gate`. After a new build, install the binary again and restart.
 
-The service listens on `127.0.0.1:9000` by default, which matches the nginx snippets. Nothing needs to be exposed publicly.
+The service listens on `127.0.0.1:9000` by default, which matches the nginx examples. Nothing needs to be exposed publicly.
 
 ## Testing with Docker
 
@@ -155,11 +155,41 @@ If you use Cloudflare's test keys (secret `1x0000000000000000000000000000000AA`)
 
 ## nginx integration
 
-The `temp/` directory has example snippets:
+`docker/nginx.conf` is a complete working example. Each server block needs these three locations once:
 
-- `temp/ts-gate-server.conf`: include **once** per `server { }` block. Defines the internal `/_ts_check` subrequest, the `@ts_challenge` fallback, and the `/_ts/challenge` location.
-- `temp/ts-gate.conf`: include in any `location` (or at server level) you want protected.
-- `temp/example-site.conf`: a full example, both per-location and whole-domain.
+```nginx
+# Internal subrequest: 204 = cookie valid, 401 = challenge needed.
+location = /_ts/verify {
+    internal;
+    proxy_pass http://127.0.0.1:9000;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Real-IP $remote_addr;
+}
+
+# Challenge page, shown in place of the protected content.
+location @ts_challenge {
+    rewrite ^ /_ts/challenge? break;
+    proxy_pass http://127.0.0.1:9000;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Original-URI $request_uri;
+}
+
+# Challenge page (GET) and form target (POST). Not gated.
+location = /_ts/challenge {
+    auth_request off;
+    proxy_pass http://127.0.0.1:9000;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Original-URI $request_uri;
+}
+```
+
+Then add these two lines to each location you want protected:
+
+```nginx
+auth_request /_ts/verify;
+error_page 401 = @ts_challenge;
+```
 
 Minimal setup:
 
@@ -167,10 +197,11 @@ Minimal setup:
 server {
     server_name example.com;
 
-    include snippets/ts-gate-server.conf;
+    # the three locations above go here
 
     location /files/ {
-        include snippets/ts-gate.conf;
+        auth_request /_ts/verify;
+        error_page 401 = @ts_challenge;
         proxy_pass http://fileserver;
     }
 }
@@ -227,7 +258,8 @@ src/
 ├── config/cookie.rs   cookie signing and HMAC verification
 ├── config/template.rs challenge page loading and placeholder replacement
 └── public/challenge.html   built-in challenge page
-temp/                  nginx and systemd examples
+deploy/                systemd unit and env file template
+docker/                nginx test config, hello-world page, entrypoint
 ```
 
 ## Security notes
@@ -236,11 +268,10 @@ temp/                  nginx and systemd examples
 - Turnstile tokens are checked server-side with the client IP, and each attempt uses its own idempotency key.
 - `next` is limited to local paths to prevent open redirects.
 - The service binds to `127.0.0.1` by default. Keep it off the public network; only nginx should reach it.
-- Run it under a restricted account. `temp/ts-gate.service` uses `DynamicUser`, `ProtectSystem=strict`, and `NoNewPrivileges`.
+- Run it under a restricted account. `deploy/ts-gate.service` uses `DynamicUser`, `ProtectSystem=strict`, and `NoNewPrivileges`.
 
 ## Known gaps
 
 - **`TURNSTILE__MAX_RETRIES=0`** does not make any attempt, so every token is rejected. Use 1–5.
-- **Verify route name.** The code serves `GET /_ts/verify`, but the nginx snippets in `temp/` (and the commented-out code in `handler.rs`) still refer to `/_ts/check`. Update the snippets to `/_ts/verify`, or the gate never passes.
 - **`CHECK_COOKIE__DOMAIN`** is read but not used yet.
 - **Error details are not sent to the client.** A rejected token gets a bare `400`. The Cloudflare error codes are only written to stderr.
